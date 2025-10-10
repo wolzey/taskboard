@@ -1,0 +1,27 @@
+[build]
+	cmd = "go build -o ./tmp/taskboard ./cmd/taskboard"
+	bin = "./tmp/taskboard"
+	full_bin = ""
+	args_bin = ["serve"]
+	include_ext = ["go", "tpl", "tmpl", "html"]
+	include_dir = ["internal", "cmd"]
+	exclude_dir = ["tmp", "vendor", "node_modules", "testdata"]
+	exclude_file = []
+	follow_symlink = false
+	delay = 1000
+
+[log]
+	time = true
+
+[color]
+  main = "yellow"
+  watcher = "cyan"
+  build = "green"
+  runner = "magenta"
+
+[run]
+  cmd = ""
+  args = []
+  env = ["GO_ENV=development"]
+  env_file = ".env"
+  dir = "."
