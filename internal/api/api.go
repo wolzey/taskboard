@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -23,10 +22,10 @@ func NewApi(opts ApiOptions) *Api {
 	router := gin.Default()
 
 	s := &http.Server{
-		Addr: fmt.Sprintf(":%d", opts.Port),
-		Handler: router,
-		ReadTimeout: 10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:           fmt.Sprintf(":%d", opts.Port),
+		Handler:        router,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
@@ -51,31 +50,28 @@ type Context struct {
 	*gin.Context
 }
 
-type HandlerFunc func (*gin.Context) (status int, results any, err error)
-
+type HandlerFunc func(*gin.Context) (status int, results any, err error)
 
 func (api *Api) AddAPIHandler(path string, method string, handler HandlerFunc) {
 	apiRouter := api.router.Group("/api")
-	wrapped := func (ctx *gin.Context) {
+	wrapped := func(ctx *gin.Context) {
 		status, result, err := handler(ctx)
-		
+
 		if err != nil {
-			ctx.Error(errors.Unwrap(err))
+			ctx.JSON(500, gin.H{"message": err.Error(), "status": 500})
 			return
 		}
 
 		ctx.JSON(status, result)
 	}
-	
 
 	switch method {
-    case "GET":
-        apiRouter.GET(path, wrapped)
-    case "POST":
-        apiRouter.POST(path, wrapped)
+	case "GET":
+		apiRouter.GET(path, wrapped)
+	case "POST":
+		apiRouter.POST(path, wrapped)
 	default:
 		fmt.Errorf("Unknown method %s", method)
 		return
-    }
+	}
 }
-
