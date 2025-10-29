@@ -294,3 +294,42 @@ func (a *App) HandlePromoteJob(ctx *gin.Context) (int, any, error) {
 		}, nil
 	}
 }
+
+type DeleteJobResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+func (a *App) HandleDeleteJob(ctx *gin.Context) (int, any, error) {
+	queue := ctx.Param("queue")
+	id := SerializedId(ctx.Param("id"))
+
+	if !id.IsValid() {
+		return 400, nil, fmt.Errorf("invalid job id")
+	}
+
+	queueKey := a.withPrefix(queue)
+	result, err := a.Redis.Scripts.DeleteJob(context.Background(), queueKey, id.String())
+
+	if err != nil {
+		return 500, nil, fmt.Errorf("failed to delete job: %w", err)
+	}
+
+	switch result {
+	case 1:
+		return 200, DeleteJobResponse{
+			Success: true,
+			Message: fmt.Sprintf("Job %s deleted successfully", id),
+		}, nil
+	case 0:
+		return 404, DeleteJobResponse{
+			Success: false,
+			Message: fmt.Sprintf("Job %s not found", id),
+		}, nil
+	default:
+		return 500, DeleteJobResponse{
+			Success: false,
+			Message: "Unexpected result from delete operation",
+		}, nil
+	}
+}

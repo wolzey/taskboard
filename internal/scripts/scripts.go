@@ -123,3 +123,24 @@ func (s *Scripts) PromoteJob(ctx context.Context, queue string, jobId string, fr
 
 	return result, nil
 }
+
+// DeleteJob deletes a job from the queue
+// Returns:
+//   1 if successful (job deleted)
+//   0 if job not found
+func (s *Scripts) DeleteJob(ctx context.Context, queue string, jobId string) (int64, error) {
+	script := s.scripts["deleteJob"]
+
+	cmd := script.Run(ctx, s.client, []string{queue}, jobId)
+
+	if cmd.Err() != nil {
+		return 0, cmd.Err()
+	}
+
+	result, err := cmd.Int64()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get script result: %w", err)
+	}
+
+	return result, nil
+}

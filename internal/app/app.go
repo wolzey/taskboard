@@ -89,6 +89,7 @@ func (a *App) Init() {
 	a.Api.AddAPIHandler("/queues/:queue", "GET", a.GetQueueDetails)
 	a.Api.AddAPIHandler("/queues/:queue/:id", "GET", a.HandleGetJobDetails)
 	a.Api.AddAPIHandler("/queues/:queue/:id/promote", "POST", a.HandlePromoteJob)
+	a.Api.AddAPIHandler("/queues/:queue/:id", "DELETE", a.HandleDeleteJob)
 	a.Api.AddAPIHandler("/queues/:queue/jobs/:state", "GET", a.HandleListJobs)
 }
 
