@@ -63,6 +63,12 @@ Only used when `redis.use_tls` is `true`:
 |------------|---------------------|---------|-------------|
 | `api.port` | `TASKBOARD_API_PORT` | `1337` | API server port |
 
+### Queue Configuration
+
+| Config Key | Environment Variable | Default | Description |
+|------------|---------------------|---------|-------------|
+| `queue.prefix` | `TASKBOARD_QUEUE_PREFIX` | `bull` | Queue prefix for job keys in Redis (change if using different prefix) |
+
 ## Examples
 
 ### Basic Configuration (No TLS)
@@ -74,6 +80,8 @@ redis:
   port: 6379
 api:
   port: 1337
+queue:
+  prefix: bull
 ```
 
 **or via environment variables:**
@@ -81,6 +89,7 @@ api:
 export TASKBOARD_REDIS_HOST=localhost
 export TASKBOARD_REDIS_PORT=6379
 export TASKBOARD_API_PORT=1337
+export TASKBOARD_QUEUE_PREFIX=bull
 ```
 
 ### Redis with Authentication
@@ -95,6 +104,8 @@ redis:
   db: 0
 api:
   port: 1337
+queue:
+  prefix: bull
 ```
 
 **or via environment variables:**
@@ -119,6 +130,8 @@ redis:
     key_file: /path/to/client.key
 api:
   port: 1337
+queue:
+  prefix: bull
 ```
 
 **or via environment variables:**
@@ -143,6 +156,8 @@ redis:
   use_tls: true
 api:
   port: 1337
+queue:
+  prefix: bull
 ```
 
 **or via environment variables:**
@@ -152,6 +167,28 @@ export TASKBOARD_REDIS_PORT=6380
 export TASKBOARD_REDIS_PASSWORD=mysecretpassword
 export TASKBOARD_REDIS_USE_TLS=true
 ```
+
+### Custom Queue Prefix
+
+If your BullMQ implementation uses a custom prefix instead of "bull", you can configure it:
+
+**config.yaml:**
+```yaml
+redis:
+  host: localhost
+  port: 6379
+api:
+  port: 1337
+queue:
+  prefix: myapp  # Custom prefix
+```
+
+**or via environment variables:**
+```bash
+export TASKBOARD_QUEUE_PREFIX=myapp
+```
+
+This will make the application look for queues like `myapp:queuename` instead of `bull:queuename`.
 
 ## Precedence
 

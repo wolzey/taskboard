@@ -101,3 +101,25 @@ type PaginatedJobResponse struct {
 	Count   int64 `redis:"count"`
 	Results []any `redis:"results"`
 }
+
+// PromoteJob promotes a job from a given state to the wait queue
+// Returns:
+//   1 if successful
+//   0 if job not found in the specified state
+//   -1 if invalid state
+func (s *Scripts) PromoteJob(ctx context.Context, queue string, jobId string, fromState string) (int64, error) {
+	script := s.scripts["promoteJob"]
+
+	cmd := script.Run(ctx, s.client, []string{queue}, jobId, fromState)
+
+	if cmd.Err() != nil {
+		return 0, cmd.Err()
+	}
+
+	result, err := cmd.Int64()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get script result: %w", err)
+	}
+
+	return result, nil
+}

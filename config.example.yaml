@@ -24,3 +24,8 @@ redis:
 
 api:
   port: 1337
+
+queue:
+  # Queue prefix for job keys in Redis (default: "bull")
+  # Change this if your BullMQ queues use a different prefix
+  prefix: bull

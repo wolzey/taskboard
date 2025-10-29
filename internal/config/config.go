@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Redis RedisConfig `mapstructure:"redis"`
 	API   APIConfig   `mapstructure:"api"`
+	Queue QueueConfig `mapstructure:"queue"`
 }
 
 type RedisConfig struct {
@@ -35,6 +36,10 @@ type TLSConfig struct {
 
 type APIConfig struct {
 	Port int `mapstructure:"port"`
+}
+
+type QueueConfig struct {
+	Prefix string `mapstructure:"prefix"`
 }
 
 // LoadConfig loads configuration from config file and environment variables
@@ -86,6 +91,9 @@ func setDefaults() {
 
 	// API defaults
 	viper.SetDefault("api.port", 1337)
+
+	// Queue defaults
+	viper.SetDefault("queue.prefix", "bull")
 }
 
 // ToRedisOptions converts RedisConfig to redis.Options

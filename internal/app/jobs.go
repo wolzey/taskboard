@@ -40,7 +40,7 @@ type ParsedJobResponse struct {
 
 func (a *App) GetJobDetails(queue string, id string) (*ParsedJobResponse, error) {
 	var res Job
-	cmd := a.Redis.Client.HGetAll(context.Background(), fmt.Sprintf("bull:%s:%s", queue, id))
+	cmd := a.Redis.Client.HGetAll(context.Background(), a.withPrefix(queue, id))
 
 	err := cmd.Scan(&res)
 
@@ -74,7 +74,7 @@ func (a *App) GetJobDetails(queue string, id string) (*ParsedJobResponse, error)
 }
 
 func (a *App) withPrefix(args ...string) string {
-	final := slices.Concat([]string{"bull"}, args)
+	final := slices.Concat([]string{a.QueuePrefix}, args)
 
 	return strings.Join(final, ":")
 }
@@ -228,4 +228,69 @@ func (a *App) HandleGetJobDetails(ctx *gin.Context) (int, any, error) {
 	}
 
 	return 200, results, nil
+}
+
+type PromoteJobRequest struct {
+	FromState string `json:"fromState" binding:"required"`
+}
+
+type PromoteJobResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+func (a *App) HandlePromoteJob(ctx *gin.Context) (int, any, error) {
+	queue := ctx.Param("queue")
+	id := SerializedId(ctx.Param("id"))
+
+	if !id.IsValid() {
+		return 400, nil, fmt.Errorf("invalid job id")
+	}
+
+	var req PromoteJobRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		return 400, nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	// Validate fromState
+	validStates := map[string]bool{
+		"delayed":           true,
+		"failed":            true,
+		"completed":         true,
+		"waiting-children":  true,
+	}
+
+	if !validStates[req.FromState] {
+		return 400, nil, fmt.Errorf("invalid fromState: must be one of delayed, failed, completed, waiting-children")
+	}
+
+	queueKey := a.withPrefix(queue)
+	result, err := a.Redis.Scripts.PromoteJob(context.Background(), queueKey, id.String(), req.FromState)
+
+	if err != nil {
+		return 500, nil, fmt.Errorf("failed to promote job: %w", err)
+	}
+
+	switch result {
+	case 1:
+		return 200, PromoteJobResponse{
+			Success: true,
+			Message: fmt.Sprintf("Job %s promoted from %s to waiting", id, req.FromState),
+		}, nil
+	case 0:
+		return 404, PromoteJobResponse{
+			Success: false,
+			Message: fmt.Sprintf("Job %s not found in %s state", id, req.FromState),
+		}, nil
+	case -1:
+		return 400, PromoteJobResponse{
+			Success: false,
+			Message: "Invalid state provided",
+		}, nil
+	default:
+		return 500, PromoteJobResponse{
+			Success: false,
+			Message: "Unexpected result from promote operation",
+		}, nil
+	}
 }

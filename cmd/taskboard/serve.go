@@ -31,6 +31,7 @@ var serveCmd = &cobra.Command{
 			ApiOptions: &api.ApiOptions{
 				Port: cfg.API.Port,
 			},
+			QueuePrefix: cfg.Queue.Prefix,
 		})
 
 		a.Api.Serve(context.Background())

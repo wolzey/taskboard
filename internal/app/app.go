@@ -33,13 +33,15 @@ func (a *queueState) ParseResults(res []int64) map[string]int64 {
 }
 
 type App struct {
-	Api   *api.Api
-	Redis *db.Redis
+	Api         *api.Api
+	Redis       *db.Redis
+	QueuePrefix string
 }
 
 type AppOptions struct {
-	RedisOpts  *redis.Options
-	ApiOptions *api.ApiOptions
+	RedisOpts   *redis.Options
+	ApiOptions  *api.ApiOptions
+	QueuePrefix string
 }
 
 type QueuesResponse struct {
@@ -65,9 +67,15 @@ func NewApp(opts *AppOptions) *App {
 
 	routes := api.NewApi(*opts.ApiOptions)
 
+	queuePrefix := opts.QueuePrefix
+	if queuePrefix == "" {
+		queuePrefix = "bull"
+	}
+
 	app := &App{
-		Redis: client,
-		Api:   routes,
+		Redis:       client,
+		Api:         routes,
+		QueuePrefix: queuePrefix,
 	}
 
 	app.Init()
@@ -80,11 +88,12 @@ func (a *App) Init() {
 	a.Api.AddAPIHandler("/queues", "GET", a.GetQueues)
 	a.Api.AddAPIHandler("/queues/:queue", "GET", a.GetQueueDetails)
 	a.Api.AddAPIHandler("/queues/:queue/:id", "GET", a.HandleGetJobDetails)
+	a.Api.AddAPIHandler("/queues/:queue/:id/promote", "POST", a.HandlePromoteJob)
 	a.Api.AddAPIHandler("/queues/:queue/jobs/:state", "GET", a.HandleListJobs)
 }
 
 func (a *App) GetQueueDetails(ctx *gin.Context) (int, any, error) {
-	queueName := fmt.Sprintf("bull:%s", ctx.Param("queue"))
+	queueName := a.withPrefix(ctx.Param("queue"))
 
 	results, err := a.Redis.Scripts.GetJobCounts(context.Background(), queueName, allStates)
 
@@ -98,7 +107,7 @@ func (a *App) GetQueueDetails(ctx *gin.Context) (int, any, error) {
 }
 
 func (a *App) GetQueues(ctx *gin.Context) (int, any, error) {
-	results, err := a.Redis.Scripts.GetQueues(context.Background(), "bull:")
+	results, err := a.Redis.Scripts.GetQueues(context.Background(), a.QueuePrefix+":")
 
 	if err != nil {
 		return 400, nil, err
@@ -114,14 +123,14 @@ func (a *App) GetQueues(ctx *gin.Context) (int, any, error) {
 func (a *App) GetJobsOverview(ctx *gin.Context) (int, any, error) {
 	final := make(map[string]map[string]int64)
 
-	results, err := a.Redis.Scripts.GetQueues(context.Background(), "bull:")
+	results, err := a.Redis.Scripts.GetQueues(context.Background(), a.QueuePrefix+":")
 
 	if err != nil {
 		return 500, nil, err
 	}
 
 	for _, v := range results {
-		fullKey := fmt.Sprintf("bull:%s", v)
+		fullKey := a.withPrefix(v)
 		counts, err := a.Redis.Scripts.GetJobCounts(context.Background(), fullKey, allStates)
 
 		if err != nil {
