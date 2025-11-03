@@ -84,6 +84,7 @@ func NewApp(opts *AppOptions) *App {
 }
 
 func (a *App) Init() {
+	a.Api.AddAPIHandler("/healthcheck", "GET", a.Healthcheck)
 	a.Api.AddAPIHandler("/overview", "GET", a.GetJobsOverview)
 	a.Api.AddAPIHandler("/queues", "GET", a.GetQueues)
 	a.Api.AddAPIHandler("/queues/:queue", "GET", a.GetQueueDetails)
@@ -119,6 +120,14 @@ func (a *App) GetQueues(ctx *gin.Context) (int, any, error) {
 	})
 
 	return 200, QueuesResponse{Queues: results, Count: len(results)}, nil
+}
+
+func (a *App) Healthcheck(ctx *gin.Context) (int, any, error) {
+	err := a.Redis.Ping(context.Background()).Err()
+	if err != nil {
+		return 503, gin.H{"status": "unhealthy", "redis": "disconnected"}, err
+	}
+	return 200, gin.H{"status": "healthy", "redis": "connected"}, nil
 }
 
 func (a *App) GetJobsOverview(ctx *gin.Context) (int, any, error) {
