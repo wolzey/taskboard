@@ -58,7 +58,8 @@ func (api *Api) AddAPIHandler(path string, method string, handler HandlerFunc) {
 		status, result, err := handler(ctx)
 
 		if err != nil {
-			ctx.JSON(500, gin.H{"message": err.Error(), "status": 500})
+			fmt.Printf("Error in %s %s: %v\n", method, path, err)
+			ctx.JSON(status, gin.H{"message": err.Error(), "status": status})
 			return
 		}
 
@@ -70,6 +71,8 @@ func (api *Api) AddAPIHandler(path string, method string, handler HandlerFunc) {
 		apiRouter.GET(path, wrapped)
 	case "POST":
 		apiRouter.POST(path, wrapped)
+	case "DELETE":
+		apiRouter.DELETE(path, wrapped)
 	default:
 		fmt.Errorf("Unknown method %s", method)
 		return

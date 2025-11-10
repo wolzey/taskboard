@@ -19,6 +19,12 @@ local prefix = KEYS[1]
 local jobId = ARGV[1]
 
 local jobKey = prefix .. ":" .. jobId
+local metaKey = prefix .. ":meta"
+
+-- Ensure the meta key exists (so queue remains discoverable)
+if rcall("EXISTS", metaKey) == 0 then
+  rcall("HSET", metaKey, "created", "taskboard")
+end
 
 -- Check if the job exists
 local exists = rcall("EXISTS", jobKey)

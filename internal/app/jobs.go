@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 type Job struct {
@@ -33,6 +34,7 @@ type PaginatedJobResponse struct {
 
 type ParsedJobResponse struct {
 	Job
+	ID         string         `json:"id"`
 	StackTrace []string       `json:"stacktrace"`
 	Data       map[string]any `json:"data"`
 	Options    map[string]any `json:"options"`
@@ -67,6 +69,7 @@ func (a *App) GetJobDetails(queue string, id string) (*ParsedJobResponse, error)
 
 	return &ParsedJobResponse{
 		Job:        res,
+		ID:         id,
 		Data:       jsonData,
 		StackTrace: jsonStack,
 		Options:    jsonOptions,
@@ -80,9 +83,19 @@ func (a *App) withPrefix(args ...string) string {
 }
 
 func (a *App) totalCount(queue string, state string) (int64, error) {
-	result := a.Redis.Client.ZCard(context.Background(), a.withPrefix(queue, state))
+	var count int64
+	var err error
 
-	count, err := result.Result()
+	// wait, active, paused, and waiting-children are stored as lists
+	// delayed, failed, completed are stored as sorted sets
+	if state == "wait" || state == "active" || state == "paused" || state == "waiting-children" {
+		result := a.Redis.Client.LLen(context.Background(), a.withPrefix(queue, state))
+		count, err = result.Result()
+	} else {
+		// Other states use sorted sets
+		result := a.Redis.Client.ZCard(context.Background(), a.withPrefix(queue, state))
+		count, err = result.Result()
+	}
 
 	if err != nil {
 		return 0, err
@@ -108,17 +121,47 @@ func Filter[T any](s []T, predicate func(T) bool) []T {
 }
 
 func (a *App) listJobs(queue string, state string, start int64, stop int64, filter *ListFilter) ([]string, error) {
-	fmt.Println(a.withPrefix(queue, state))
-	result := a.Redis.Client.ZRevRange(context.Background(), a.withPrefix(queue, state), start, stop)
+	stateKey := a.withPrefix(queue, state)
+	fmt.Printf("Listing jobs for key: %s, start: %d, stop: %d\n", stateKey, start, stop)
 
-	if result.Err() != nil {
-		return nil, result.Err()
-	}
+	var results []string
+	var err error
 
-	results, err := result.Result()
+	// wait, active, paused, and waiting-children are stored as lists
+	// delayed, failed, completed are stored as sorted sets
+	if state == "wait" || state == "active" || state == "paused" || state == "waiting-children" {
+		fmt.Printf("Using LRANGE for state: %s\n", state)
+		result := a.Redis.Client.LRange(context.Background(), stateKey, start, stop)
 
-	if err != nil {
-		return nil, err
+		if result.Err() != nil {
+			fmt.Printf("LRANGE error: %v\n", result.Err())
+			return nil, result.Err()
+		}
+
+		results, err = result.Result()
+
+		if err != nil {
+			fmt.Printf("LRANGE result error: %v\n", err)
+			return nil, err
+		}
+		fmt.Printf("LRANGE returned %d jobs\n", len(results))
+	} else {
+		// Other states (delayed, failed, completed, etc.) use sorted sets
+		fmt.Printf("Using ZREVRANGE for state: %s\n", state)
+		result := a.Redis.Client.ZRevRange(context.Background(), stateKey, start, stop)
+
+		if result.Err() != nil {
+			fmt.Printf("ZREVRANGE error: %v\n", result.Err())
+			return nil, result.Err()
+		}
+
+		results, err = result.Result()
+
+		if err != nil {
+			fmt.Printf("ZREVRANGE result error: %v\n", err)
+			return nil, err
+		}
+		fmt.Printf("ZREVRANGE returned %d jobs\n", len(results))
 	}
 
 	if filter != nil {
@@ -231,12 +274,41 @@ func (a *App) HandleGetJobDetails(ctx *gin.Context) (int, any, error) {
 }
 
 type PromoteJobRequest struct {
-	FromState string `json:"fromState" binding:"required"`
+	FromState string `json:"fromState"`
 }
 
 type PromoteJobResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+}
+
+// findJobState searches for a job across all promotable states
+// Returns the state name if found, empty string if not found
+func (a *App) findJobState(queue string, jobId string) (string, error) {
+	promotableStates := []string{"delayed", "failed", "completed", "waiting-children"}
+
+	for _, state := range promotableStates {
+		stateKey := a.withPrefix(queue, state)
+
+		// waiting-children is stored as a list, others as sorted sets
+		if state == "waiting-children" {
+			// For lists, check if the jobId is in the list
+			result := a.Redis.Client.LPos(context.Background(), stateKey, jobId, redis.LPosArgs{})
+			_, err := result.Result()
+			if err == nil {
+				return state, nil
+			}
+		} else {
+			// For sorted sets, check if the member exists
+			result := a.Redis.Client.ZScore(context.Background(), stateKey, jobId)
+			_, err := result.Result()
+			if err == nil {
+				return state, nil
+			}
+		}
+	}
+
+	return "", nil
 }
 
 func (a *App) HandlePromoteJob(ctx *gin.Context) (int, any, error) {
@@ -248,39 +320,66 @@ func (a *App) HandlePromoteJob(ctx *gin.Context) (int, any, error) {
 	}
 
 	var req PromoteJobRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		return 400, nil, fmt.Errorf("invalid request body: %w", err)
+	// Try to bind JSON, but don't fail if body is empty
+	_ = ctx.ShouldBindJSON(&req)
+
+	// If fromState is not provided, auto-detect it
+	fromState := req.FromState
+	if fromState == "" {
+		detectedState, err := a.findJobState(queue, id.String())
+		if err != nil {
+			return 500, nil, fmt.Errorf("failed to detect job state: %w", err)
+		}
+		if detectedState == "" {
+			return 404, nil, fmt.Errorf("job %s not found in any promotable state (delayed, failed, completed, waiting-children)", id)
+		}
+		fromState = detectedState
 	}
 
 	// Validate fromState
 	validStates := map[string]bool{
-		"delayed":           true,
-		"failed":            true,
-		"completed":         true,
-		"waiting-children":  true,
+		"delayed":          true,
+		"failed":           true,
+		"completed":        true,
+		"waiting-children": true,
 	}
 
-	if !validStates[req.FromState] {
+	if !validStates[fromState] {
 		return 400, nil, fmt.Errorf("invalid fromState: must be one of delayed, failed, completed, waiting-children")
 	}
 
 	queueKey := a.withPrefix(queue)
-	result, err := a.Redis.Scripts.PromoteJob(context.Background(), queueKey, id.String(), req.FromState)
+	fmt.Printf("Promoting job %s from state %s in queue %s\n", id, fromState, queueKey)
+	result, err := a.Redis.Scripts.PromoteJob(context.Background(), queueKey, id.String(), fromState)
 
 	if err != nil {
+		fmt.Printf("Promote job error: %v\n", err)
 		return 500, nil, fmt.Errorf("failed to promote job: %w", err)
+	}
+
+	fmt.Printf("Promote job result: %d\n", result)
+
+	// Debug: Check if job is now in wait queue
+	if result == 1 {
+		waitKey := a.withPrefix(queue, "wait")
+		waitLen := a.Redis.Client.LLen(context.Background(), waitKey).Val()
+		fmt.Printf("After promote, wait queue length: %d\n", waitLen)
+
+		// Check if specific job is in wait queue
+		pos := a.Redis.Client.LPos(context.Background(), waitKey, id.String(), redis.LPosArgs{}).Val()
+		fmt.Printf("Job %s position in wait queue: %d\n", id, pos)
 	}
 
 	switch result {
 	case 1:
 		return 200, PromoteJobResponse{
 			Success: true,
-			Message: fmt.Sprintf("Job %s promoted from %s to waiting", id, req.FromState),
+			Message: fmt.Sprintf("Job %s promoted from %s to waiting", id, fromState),
 		}, nil
 	case 0:
 		return 404, PromoteJobResponse{
 			Success: false,
-			Message: fmt.Sprintf("Job %s not found in %s state", id, req.FromState),
+			Message: fmt.Sprintf("Job %s not found in %s state", id, fromState),
 		}, nil
 	case -1:
 		return 400, PromoteJobResponse{

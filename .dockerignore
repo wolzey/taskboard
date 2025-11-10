@@ -1,0 +1,32 @@
+# Git files
+.git
+.gitignore
+
+# Development files
+.air.toml
+tmp/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+*_test.go
+
+# Documentation
+*.md
+!CONFIG.md
+
+# Config files (use env vars in container)
+config.yaml
+
+# Build artifacts
+taskboard
+*.exe
+*.dll
+*.so
+*.dylib

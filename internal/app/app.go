@@ -144,6 +144,7 @@ func (a *App) GetJobsOverview(ctx *gin.Context) (int, any, error) {
 		counts, err := a.Redis.Scripts.GetJobCounts(context.Background(), fullKey, allStates)
 
 		if err != nil {
+			fmt.Printf("Error getting counts for queue %s: %v\n", v, err)
 			continue
 		}
 

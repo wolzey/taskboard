@@ -37,6 +37,13 @@ end
 local waitKey = prefix .. ":wait"
 local stateKey = prefix .. ":" .. fromState
 local jobKey = prefix .. ":" .. jobId
+local metaKey = prefix .. ":meta"
+
+-- Ensure the meta key exists (so queue remains discoverable)
+-- Set a simple marker if it doesn't exist
+if rcall("EXISTS", metaKey) == 0 then
+  rcall("HSET", metaKey, "created", "taskboard")
+end
 
 -- Check if the job exists
 local exists = rcall("EXISTS", jobKey)
